@@ -10,8 +10,8 @@ import urllib
 
 from firebase import *
 
-
 USERNAME = "shubham"
+FILE_PATH = "./statement_1.pdf"
 
 
 def mergeWithLastTransaction(lastRow, row):
@@ -53,118 +53,119 @@ def tansformToValidTransaction(row):
 
 
 # def categorizeTransactions(row):
-
 # def convertToJsonData(validTransactions):
-
 
 # TODO: call Notion API to insert
 # TODO: organize the code 😅
 
 
-filepath = "./statement_1.pdf"
+def extractData(filpath):
 
-# jsonData = tabula.read_pdf(filepath, output_format='json', pages='all')
+    # jsonData = tabula.read_pdf(FILE_PATH, output_format='json', pages='all')
 
-tables = tabula.read_pdf(filepath, pages='all', silent=True,
-                       pandas_options={
-                           'header': None
-                       })
-
-
-HDFC_TXN_TABLE_INDEX = {
-    "Txn Date": 0,
-    "Narration": 1,
-    "Withdrwals": 2,
-    "Deposits": 3,
-    "Closing Balance": 4
-}
-
-HDFC_SUMMARY_INDEX = {
-    "Account Type": 1,
-    "Balance": 2
-}
+    tables = tabula.read_pdf(FILE_PATH, pages='all', silent=True,
+                        pandas_options={
+                            'header': None
+                        })
 
 
-TXN_CATEGORY = {
-    0: "Investment", 
-    1: "Transfers",
-    2: "Online Shopping",
-    3: "Food",
-    4: "Video Games"
-}
+    HDFC_TXN_TABLE_INDEX = {
+        "Txn Date": 0,
+        "Narration": 1,
+        "Withdrwals": 2,
+        "Deposits": 3,
+        "Closing Balance": 4
+    }
 
-MAP_KEYWORD_TO_CATEGORY = {
-    "groww": 0,
-    "BSELim": 0,
-    "chiragchaudhary": 1,
-    "honey": 1,
-    "playstation": 4,
-    "amazon": 2
-}
+    HDFC_SUMMARY_INDEX = {
+        "Account Type": 1,
+        "Balance": 2
+    }
 
 
-accountSummary = tables[0]
-tnxCounter = 1
-curTxnTable = tables[tnxCounter]
+    TXN_CATEGORY = {
+        0: "Investment", 
+        1: "Transfers",
+        2: "Online Shopping",
+        3: "Food",
+        4: "Video Games"
+    }
 
-validTransaction = []
+    MAP_KEYWORD_TO_CATEGORY = {
+        "groww": 0,
+        "BSELim": 0,
+        "chiragchaudhary": 1,
+        "honey": 1,
+        "playstation": 4,
+        "amazon": 2
+    }
 
-# Table 1: Summary
-# Last Table: Interest
-# Second last table: FD
-# transaction table is merging with summary section 
 
-for tnxCounter in range(1, len(tables) - 2):
+    accountSummary = tables[0]
+    tnxCounter = 1
     curTxnTable = tables[tnxCounter]
-    isNanLookup = curTxnTable.isnull()
 
-    # print(isNanLookup)
+    validTransaction = []
 
-    for index, row in curTxnTable.iterrows():
-        if(index == 0): 
+    # Table 1: Summary
+    # Last Table: Interest
+    # Second last table: FD
+    # transaction table is merging with summary section 
+
+    for tnxCounter in range(1, len(tables) - 2):
+        curTxnTable = tables[tnxCounter]
+        isNanLookup = curTxnTable.isnull()
+
+        # print(isNanLookup)
+
+        for index, row in curTxnTable.iterrows():
+            if(index == 0): 
+                continue
+
+            if(row[0] == "SUMMARY"):
+                break
+
+            if(len(row) == 5):
+                row = tansformToValidTransaction(row)
+
+            rowNanCount = row.isnull().sum()
+            if(rowNanCount > 1):
+                mergeWithLastTransaction(validTransaction[len(validTransaction) - 1], row)
+            else:
+                validTransaction.append(row)
+
+
+
+    # for row in validTransaction:
+    #     insertRowIntoDb(row)
+
+
+    closingBalance = 0.0
+    fdBalance = 0.0
+
+    for index, row in accountSummary.iterrows():
+        if(row[0] != "INR"):
             continue
 
-        if(row[0] == "SUMMARY"):
-            break
-
-        if(len(row) == 5):
-            row = tansformToValidTransaction(row)
-
-        rowNanCount = row.isnull().sum()
-        if(rowNanCount > 1):
-            mergeWithLastTransaction(validTransaction[len(validTransaction) - 1], row)
-        else:
-            validTransaction.append(row)
+        if(row[HDFC_SUMMARY_INDEX["Account Type"]] == "SAVINGS ACCOUNTS"):
+            closingBalance = row[2]
+        elif(row[HDFC_SUMMARY_INDEX["Account Type"]] == "TERM DEPOSITS"):
+            fdBalance = row[2]
 
 
+    print(closingBalance)
+    print(fdBalance)
 
-# for row in validTransaction:
-#     insertRowIntoDb(row)
+    jsonData = getJsonData(validTransaction, closingBalance, fdBalance)
 
+    saveUserdata(USERNAME, jsonData)
 
-closingBalance = 0.0
-fdBalance = 0.0
+    fo = open("output.raw", "w")
+    fo.write(str(validTransaction))
+    fo.close()
 
-for index, row in accountSummary.iterrows():
-    if(row[0] != "INR"):
-        continue
+    return jsonData
 
-    if(row[HDFC_SUMMARY_INDEX["Account Type"]] == "SAVINGS ACCOUNTS"):
-        closingBalance = row[2]
-    elif(row[HDFC_SUMMARY_INDEX["Account Type"]] == "TERM DEPOSITS"):
-        fdBalance = row[2]
-
-
-print(closingBalance)
-print(fdBalance)
-
-jsonData = getJsonData(validTransaction, closingBalance, fdBalance)
-
-saveUserdata(USERNAME, jsonData)
-
-fo = open("output.raw", "w")
-fo.write(str(validTransaction))
-fo.close()
 
 
 # tabula.convert_into("./statement_1.pdf", "output.csv", output_format="csv", pages='all')
